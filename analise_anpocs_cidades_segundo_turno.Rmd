@@ -1,0 +1,609 @@
+---
+title: 'Raça e Recrutamento Eleitoral no Brasil: composição racial e de gênero das candidaturas à vereança por partido e ideologia (2016-2024)'
+author: "Wescrey Portes e Juliana Marques (IESP/UERJ)"
+date: "`r format(Sys.Date(), '%d/%m/%Y')`"
+always_allow_html: true
+output:
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    fig_caption: true
+    fig_width: 10
+    fig_height: 6
+  word_document:
+    toc: true
+    toc_depth: '3'
+  pdf_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+    latex_engine: xelatex
+    keep_tex: false
+    fig_caption: true
+    fig_width: 10
+    fig_height: 6
+header-includes:
+- \usepackage{float}
+- \usepackage{geometry}
+- \geometry{margin=2cm}
+---
+
+<!--
+==============================================================================
+ REPRODUTIBILIDADE — LEIA ANTES DE EXECUTAR
+==============================================================================
+ Script que gera os Gráficos 1 a 6 do artigo "Raça e Recrutamento Eleitoral
+ no Brasil" (ANPOCS 2026). Universo: candidaturas a vereador em 2016, 2020
+ e 2024 nos municípios com mais de 200 mil eleitores.
+
+ Diretório original de trabalho:
+   D:\Estudos\Doutorado\Anpocs 2026\anpocs_2026
+
+ O script NÃO depende desse caminho: todas as bases são lidas por caminho
+ RELATIVO. Basta manter este .Rmd na MESMA pasta que os arquivos:
+   - bd_cand_2014_2024.csv (ou bd_cand_2014_2024.csv.gz) — candidaturas (TSE)
+   - municipio_tse_ibge.csv  — correspondência de códigos TSE ↔ IBGE
+   - base_capitais.xlsx      — lista das capitais (código IBGE)
+   - base_segundo_turno.xlsx — municípios com mais de 200 mil eleitores
+
+ Para gerar: abrir no RStudio e clicar em "Knit"
+ (ou rmarkdown::render("analise_anpocs_cidades_segundo_turno.Rmd")).
+ Saídas: relatório HTML/Word/PDF + grafico1.png a grafico6.png nesta pasta.
+ Detalhes no leia-me.txt do repositório.
+
+ Correspondência com o artigo:
+   Gráfico 1 → chunk graf1_genero_raca_brasil
+   Gráfico 2 → chunk graf2_genero_raca_uf
+   Gráficos 3, 4 e 5 → chunks graf3/graf4/graf5_genero_raca_partido_<ano>
+   Gráfico 6 → chunk graf6_genero_raca_ideologia
+==============================================================================
+-->
+
+```{r setup, include=FALSE}
+# ── Opções globais dos chunks ────────────────────────────────────────────────
+# echo = FALSE: o relatório mostra apenas os gráficos (não o código).
+# Para exibir o código no relatório, altere para echo = TRUE.
+knitr::opts_chunk$set(
+  echo = FALSE,
+  message = FALSE,
+  warning = FALSE,
+  fig.pos = "H",
+  out.extra = ""
+)
+
+# Limpa o ambiente para garantir que o relatório dependa apenas das bases lidas
+rm(list = ls()[ls() != ""])
+gc()
+
+# Padrão brasileiro: vírgula como separador decimal nas saídas
+options(OutDec = ",")
+options(scipen = 100, digits = 2)
+
+# Pacotes necessários (instalados automaticamente via pacman, se ausentes)
+if (!requireNamespace("pacman", quietly = TRUE)) install.packages("pacman")
+pacman::p_load(dplyr, tidyverse, ggplot2, knitr, scales, forcats,
+               readr, readxl)
+
+# ── Paleta de cores ──────────────────────────────────────────────────────────
+# As categorias de Gênero/Raça são formadas pela concatenação de DSC_GENERO
+# (FEM, MASC, NAOINF) com DSC_COR_RACA (PRETA, PARDA, BRANCA, AMARELA,
+# INDIGENA, NAOINF), conforme autodeclaração no registro de candidatura do TSE
+# (classificação racial do IBGE). Tons quentes = mulheres; tons frios = homens.
+cores_genero_raca <- c(
+  "FEMPRETA"       = "#8B1A1A",
+  "FEMPARDA"       = "#B03A2E",
+  "FEMBRANCA"      = "#EC9A54",
+  "FEMAMARELA"     = "#F5C18A",
+  "FEMINDIGENA"    = "#C8A96E",
+  "FEMNAOINF"      = "#D3C4B5",
+  "MASCPRETA"      = "#1A3A5C",
+  "MASCPARDA"      = "#2F5F8F",
+  "MASCBRANCA"     = "#4A90C4",
+  "MASCAMARELA"    = "#8FC4E8",
+  "MASCINDIGENA"   = "#6B9E7A",
+  "MASCNAOINF"     = "#B0C8D8",
+  "NAOINFNAOINF"   = "#AAAAAA"
+)
+
+# Rótulos legíveis para a legenda
+rotulos_gr <- c(
+  "FEMPRETA"    = "Fem. Preta",
+  "FEMPARDA"    = "Fem. Parda",
+  "FEMBRANCA"   = "Fem. Branca",
+  "FEMAMARELA"  = "Fem. Amarela",
+  "FEMINDIGENA" = "Fem. Indígena",
+  "FEMNAOINF"   = "Fem. N/Inf",
+  "MASCPRETA"   = "Masc. Preta",
+  "MASCPARDA"   = "Masc. Parda",
+  "MASCBRANCA"  = "Masc. Branca",
+  "MASCAMARELA" = "Masc. Amarela",
+  "MASCINDIGENA"= "Masc. Indígena",
+  "MASCNAOINF"  = "Masc. N/Inf",
+  "NAOINFNAOINF"= "N/Inf"
+)
+
+# ── Tema gráfico ─────────────────────────────────────────────────────────────
+tema_tese <- theme_minimal(base_size = 12) +
+  theme(
+    plot.title    = element_text(face = "bold", size = 13, hjust = 0.5),
+    plot.subtitle = element_text(size = 11, hjust = 0.5, color = "gray40"),
+    axis.text.x   = element_text(angle = 45, hjust = 1, size = 10),
+    axis.text.y   = element_text(size = 10),
+    legend.position = "bottom",
+    legend.title  = element_text(size = 10, face = "bold"),
+    legend.text   = element_text(size = 9),
+    panel.grid.minor = element_blank(),
+    strip.text    = element_text(face = "bold", size = 11)
+  )
+
+# ── Grupos analisados nos Gráficos 2 a 6 ─────────────────────────────────────
+# Os seis maiores grupos de Gênero/Raça. Os percentuais são calculados sobre
+# o TOTAL de candidaturas (todos os grupos), por isso as barras empilhadas
+# podem somar menos de 100%.
+grupos_chave <- c("FEMPRETA","FEMPARDA","FEMBRANCA","MASCPRETA","MASCPARDA","MASCBRANCA")
+```
+
+```{r carrega_dados, include=FALSE}
+# ════════════════════════════════════════════════════════════════════════════
+# 1. BASE DE CANDIDATURAS (TSE)
+# ════════════════════════════════════════════════════════════════════════════
+# bd_cand_2014_2024.csv: base consolidada pelos autores a partir do Portal de
+# Dados Abertos do TSE (candidatos), eleições de 2014 a 2024. Inclui as
+# candidaturas posteriormente consideradas inaptas.
+# Separador ";" e codificação UTF-8.
+#
+# Variáveis utilizadas neste script:
+#   ANO_ELEICAO, DS_CARGO, SG_UF, SG_UE (código TSE do município), NM_UE,
+#   SG_PARTIDO, DSC_GENERO e DSC_COR_RACA.
+#
+# Como o arquivo .csv completo excede o limite de 100 MB do GitHub, o
+# repositório pode conter a versão comprimida (.csv.gz). O R lê arquivos
+# .gz diretamente; o código abaixo usa o que estiver disponível na pasta.
+arq_bd <- if (file.exists("bd_cand_2014_2024.csv")) {
+  "bd_cand_2014_2024.csv"
+} else {
+  "bd_cand_2014_2024.csv.gz"
+}
+
+bd <- read.csv2(arq_bd,
+                sep = ";", stringsAsFactors = FALSE, encoding = "UTF-8")
+
+# Conferência das siglas partidárias presentes na base (apenas diagnóstico)
+table(bd$SG_PARTIDO)
+
+# ── Classificação ideológica dos partidos ──────────────────────────────────
+# Base: expert survey ABCP 2018 (Bolognesi, Ribeiro e Codato, 2023), com
+# sete categorias. Siglas renomeadas mantêm a classificação da sigla de
+# origem; todas as grafias de cada sigla ao longo dos anos são listadas
+# (ex.: PCDOB / PCdoB / PC do B). Partidos não listados recebem NA e ficam
+# fora do Gráfico 6.
+#
+# ATENÇÃO — conferir antes de publicar: o texto do artigo (seção 2) aloca
+# a UP em "Esquerda" e o PRD em "Direita", mas o código abaixo classifica a
+# UP como "Extrema-Esquerda" e o PRD como "Centro-Direita". O Gráfico 6
+# reflete o CÓDIGO. Alinhar um dos dois.
+bd <- bd %>%
+mutate(DSC_IDEOLOGIA = case_when(
+    SG_PARTIDO  %in% c("PPS","PV","REDE","CIDADANIA") ~ "Centro",
+    SG_PARTIDO  %in% c("PHS",
+                       "PMB","DEMOCRATA",
+                       "PMN","MOBILIZA",
+                       "PTB","PTdoB","PT do B","AVANTE","SD","SOLIDARIEDADE","PRD") ~ "Centro-Direita",
+    
+    SG_PARTIDO  %in% c("PDT","PSB") ~ "Centro-Esquerda",
+    SG_PARTIDO  %in% c("UNIÃO","PTN","NOVO","PMDB","PP","PPL","PR","PRB","PROS","PRP","PRTB","PSC","PSD","PSDB","PSDC","PSL","PTC","AGIR","DC","MDB","PL","PODE","REPUBLICANOS","MISSÃO") ~ "Direita",
+    SG_PARTIDO  %in% c("PCDOB","PCdoB","PC do B","PT") ~ "Esquerda",
+    SG_PARTIDO  %in% c("PCB","PCO","PSOL","PSTU","UP") ~ "Extrema-Esquerda",
+    SG_PARTIDO  %in% c("DEM","PATRIOTA") ~ "Extrema-Direita"))
+
+# ── Harmonização das siglas (SG_PARTIDO2) ──────────────────────────────────
+# Partidos que mudaram de nome entre 2016 e 2024 são agrupados em uma única
+# categoria "nome antigo/nome novo" para permitir a comparação temporal.
+# O número à esquerda é o número eleitoral do partido.
+# Obs.: fusões (ex.: DEM + PSL → UNIÃO; PTB + PATRIOTA → PRD) NÃO são
+# agregadas — cada legenda aparece separadamente no ano em que existiu.
+# Federações (2024): cada candidatura é contada no partido informado em
+# SG_PARTIDO, e não na federação.
+bd <- bd %>%
+  mutate(
+    SG_PARTIDO2 = case_when(
+      
+      # 10 - PRB → REPUBLICANOS
+      SG_PARTIDO == "PRB" ~ "PRB/REPUBLICANOS",
+      SG_PARTIDO == "REPUBLICANOS" ~ "PRB/REPUBLICANOS",
+      
+      # 15 - PMDB → MDB
+      SG_PARTIDO == "PMDB" ~ "PMDB/MDB",
+      SG_PARTIDO == "MDB" ~ "PMDB/MDB",
+      
+      # 23 - PPS → CIDADANIA
+      SG_PARTIDO == "PPS" ~ "PPS/CIDADANIA",
+      SG_PARTIDO == "CIDADANIA" ~ "PPS/CIDADANIA",
+      
+      # 27 - PSDC → DC
+      SG_PARTIDO == "PSDC" ~ "PSDC/DC",
+      SG_PARTIDO == "DC" ~ "PSDC/DC",
+      
+      # 33 - PMN → MOBILIZA
+      SG_PARTIDO == "PMN" ~ "PMN/MOBILIZA",
+      SG_PARTIDO == "MOBILIZA" ~ "PMN/MOBILIZA",
+      
+      # 36 - PTC → AGIR
+      SG_PARTIDO == "PTC" ~ "PTC/AGIR",
+      SG_PARTIDO == "AGIR" ~ "PTC/AGIR",
+      
+      # 70 - PT do B → AVANTE
+      SG_PARTIDO == "PT do B" ~ "PT do B/AVANTE",
+      SG_PARTIDO == "PTdoB" ~ "PT do B/AVANTE",
+      SG_PARTIDO == "AVANTE" ~ "PT do B/AVANTE",
+      
+      # 77 - SD → SOLIDARIEDADE
+      SG_PARTIDO == "SD" ~ "SD/SOLIDARIEDADE",
+      SG_PARTIDO == "SOLIDARIEDADE" ~ "SD/SOLIDARIEDADE",
+
+      # 65 - PC do B / PCDOB
+      SG_PARTIDO == "PC do B" ~ "PCdoB",
+      SG_PARTIDO == "PCDOB" ~ "PCdoB",
+      
+      TRUE ~ SG_PARTIDO
+    )
+  )
+
+
+
+# Diagnóstico: candidaturas cujo partido não recebeu classificação ideológica
+t <- bd  %>%
+  filter(is.na(DSC_IDEOLOGIA))
+
+# ════════════════════════════════════════════════════════════════════════════
+# 2. RECORTE: CANDIDATURAS A VEREADOR (2016, 2020 e 2024)
+# ════════════════════════════════════════════════════════════════════════════
+# DSC_GENERO_RACA = combinação de gênero e cor/raça (ver paleta no setup).
+bd_vereanca <- bd %>%
+  filter(DS_CARGO == "VEREADOR") %>%
+  mutate(
+    ANO_ELEICAO = as.factor(ANO_ELEICAO),
+    DSC_GENERO_RACA = factor(paste0(DSC_GENERO,DSC_COR_RACA),
+      levels = c("FEMPRETA","FEMPARDA","FEMBRANCA","FEMAMARELA","FEMINDIGENA","FEMNAOINF", "MASCPRETA","MASCPARDA","MASCBRANCA","MASCAMARELA","MASCINDIGENA","MASCNAOINF","NAOINFNAOINF")))
+
+
+# ── Tabela auxiliar UF → Região (IBGE) ─────────────────────────────────────
+uf_regiao <- data.frame(
+#  SG_UE_UF = c(
+#    11, 12, 13, 14, 15, 16, 17,
+#    21, 22, 23, 24, 25, 26, 27, 28, 29,
+#    31, 32, 33, 35,
+#    41, 42, 43,
+#    50, 51, 52, 53
+#  ),
+  SG_UF = c(
+    "RO", "AC", "AM", "RR", "PA", "AP", "TO",
+    "MA", "PI", "CE", "RN", "PB", "PE", "AL", "SE", "BA",
+    "MG", "ES", "RJ", "SP",
+    "PR", "SC", "RS",
+    "MS", "MT", "GO", "DF"
+  ),
+  REGIAO = c(
+    rep("Norte", 7),
+    rep("Nordeste", 9),
+    rep("Sudeste", 4),
+    rep("Sul", 3),
+    rep("Centro-Oeste", 4)
+  )
+)
+
+bd_vereanca <- bd_vereanca %>%
+  left_join(uf_regiao, by = "SG_UF")
+
+# ════════════════════════════════════════════════════════════════════════════
+# 3. IDENTIFICAÇÃO DE CAPITAIS E MUNICÍPIOS COM SEGUNDO TURNO
+# ════════════════════════════════════════════════════════════════════════════
+# O TSE identifica municípios por um código próprio (SG_UE / CD_MUNICIPIO_TSE),
+# diferente do código IBGE (7 dígitos). As listas de capitais e de municípios
+# com segundo turno estão em código IBGE; por isso, usa-se a tabela de
+# correspondência municipio_tse_ibge.csv para convertê-las ao código TSE
+# antes de cruzar com a base de candidaturas.
+
+# Tabela de correspondência TSE ↔ IBGE (colunas CD_MUNICIPIO_TSE e
+# CD_MUNICIPIO_IBGE, separador ";")
+library(readr)
+municipio_tse_ibge <- read_delim("municipio_tse_ibge.csv",
+    delim = ";", escape_double = FALSE, trim_ws = TRUE)
+
+# ── 3.1 Capitais ────────────────────────────────────────────────────────────
+# base_capitais.xlsx: 4 colunas, sendo a 3ª o "Código IBGE" do município.
+library(readxl)
+base_capitais <- read_excel("base_capitais.xlsx",
+    col_types = c("text", "text", "numeric","text"))
+
+
+base_capitais$CD_MUNICIPIO_IBGE<-base_capitais$`Código IBGE`
+
+base_capitais$DSC_capital <-"sim"
+
+
+base_capitais <- base_capitais %>%
+  left_join(municipio_tse_ibge, by = "CD_MUNICIPIO_IBGE")
+
+base_capitais$SG_UE<-base_capitais$CD_MUNICIPIO_TSE
+
+bd_vereanca <- bd_vereanca %>%
+  left_join(base_capitais, by = "SG_UE")
+
+bd_vereanca <- bd_vereanca %>%
+  mutate(
+    flag_capitais = case_when(
+      DSC_capital == "sim" ~ 1,
+      TRUE ~ 0))
+
+# Diagnóstico: nº de candidaturas em capitais (1) e demais municípios (0)
+table(bd_vereanca$flag_capitais, useNA = "always")
+
+# ── 3.2 Municípios com segundo turno ───────────────────────────────────────
+# base_segundo_turno.xlsx: lista de municípios (com "Código IBGE") que
+# compõem o universo deste estudo. Mesmo procedimento das capitais:
+# IBGE → TSE → junção com a base de candidaturas → flag 0/1.
+base_segundo_turno <- read_excel("base_segundo_turno.xlsx")
+
+base_segundo_turno$DSC_perfil <-"segundo turno"
+
+
+base_segundo_turno$CD_MUNICIPIO_IBGE<-base_segundo_turno$`Código IBGE`
+
+
+base_segundo_turno <- base_segundo_turno %>%
+  left_join(municipio_tse_ibge, by = "CD_MUNICIPIO_IBGE")
+
+base_segundo_turno$SG_UE<-base_segundo_turno$CD_MUNICIPIO_TSE
+
+bd_vereanca <- bd_vereanca %>%
+  left_join(base_segundo_turno, by = "SG_UE")
+
+bd_vereanca <- bd_vereanca %>%
+  mutate(
+    flag_segundo_turno = case_when(
+      DSC_perfil == "segundo turno" ~ 1,
+      TRUE ~ 0))
+
+
+# ── RECORTE FINAL DA AMOSTRA ───────────────────────────────────────────────
+# A partir daqui, TODOS os gráficos referem-se apenas às candidaturas a
+# vereador nos municípios com mais de 200 mil eleitores (aptos a segundo
+# turno) — 103 municípios em 2024.
+bd_vereanca <- bd_vereanca %>%
+  filter(flag_segundo_turno == 1)
+
+# Diagnóstico: nº de candidaturas por município da amostra
+t <-bd_vereanca %>%
+   group_by(NM_UE) %>%
+   summarise(Total=n())
+
+# View(t)  # desativado: View() interrompe o "Knit" fora do modo interativo.
+#            Para inspecionar, rode este chunk no console e descomente.
+
+# As junções com as bases de capitais e de segundo turno trazem colunas
+# homônimas (ex.: SG_UF), que o dplyr renomeia como SG_UF.x / SG_UF.y.
+# Aqui restaura-se SG_UF a partir da base do TSE (.x).
+bd_vereanca$SG_UF <- bd_vereanca$SG_UF.x
+
+bd_vereanca$SG_UF.x <- NULL
+
+
+```
+
+\newpage
+
+# Distribuição por gênero e raça das candidaturas (Brasil)
+
+```{r graf1_genero_raca_brasil, fig.cap="Gráfico 1 – Distribuição por Gênero e Raça das candidaturas em 2016, 2020 e 2024", fig.height=5}
+# % de candidaturas de cada grupo de Gênero/Raça sobre o total do ano
+graf1_data <- bd_vereanca %>%
+  group_by(ANO_ELEICAO, DSC_GENERO_RACA) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(ANO_ELEICAO) %>%
+  mutate(pct = n / sum(n) * 100) %>%
+  ungroup()
+
+ggplot(graf1_data, aes(x = DSC_GENERO_RACA, y = pct, fill = DSC_GENERO_RACA)) +
+  geom_col(position = "dodge") +
+  geom_text(aes(label = paste0(formatC(pct, digits=1, format="f", decimal.mark=","), "%")),
+            position = position_stack(vjust = 1.1),
+            size = 3, color = "black", fontface = "bold") +
+  coord_flip() +
+  facet_wrap(~ ANO_ELEICAO, ncol = 2) +
+  scale_fill_manual(values = cores_genero_raca, labels = rotulos_gr, name = "Gênero/Raça") +
+  scale_x_discrete(labels = rotulos_gr) +
+  scale_y_continuous(labels = function(x) paste0(x, "%"), expand = expansion(mult=c(0,0.15))) +
+  labs(title = "Percentual de Candidaturas por Gênero e Raça",
+       subtitle = "Vereança – Eleições 2016, 2020 e 2024",
+       x = NULL, y = "% de candidaturas") +
+  tema_tese + theme(legend.position = "none")
+
+# Exporta o gráfico em alta resolução (300 dpi) para a pasta do projeto
+ggsave("grafico1_genero_raca_brasil.png", width = 10, height = 6, dpi = 300)
+```
+
+\newpage
+
+# Distribuição por gênero e raça das candidaturas por estado
+
+```{r graf2_genero_raca_uf, fig.cap="Gráfico 2 – Distribuição por Gênero e Raça das candidaturas por estado em 2016, 2020 e 2024", fig.height=9, fig.width=11}
+# Denominador: total de candidaturas da UF no ano (todos os grupos)
+total_uf_cand <- bd_vereanca %>%
+  group_by(ANO_ELEICAO, SG_UF) %>%
+  summarise(n_total = n(), .groups = "drop")
+
+# Numerador: candidaturas dos seis grupos principais por UF e ano
+graf2_data <- bd_vereanca %>%
+  filter(DSC_GENERO_RACA %in% grupos_chave) %>%
+  group_by(ANO_ELEICAO, SG_UF, GRUPO = as.character(DSC_GENERO_RACA)) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  left_join(total_uf_cand, by = c("ANO_ELEICAO", "SG_UF")) %>%
+  mutate(pct = round(n / n_total * 100, 1)) %>%
+  select(-n_total)
+
+ggplot(graf2_data, aes(x = SG_UF, y = pct, fill = GRUPO)) +
+  geom_col(position = "stack") +
+  # rótulos apenas para segmentos >= 2%, para evitar sobreposição
+  geom_text(data = graf2_data %>% filter(pct >= 2),
+            aes(label = formatC(pct, digits=1, format="f", decimal.mark=",")),
+            position = position_stack(vjust = 0.5),
+            size = 2.5, color = "white", fontface = "bold") +
+  facet_wrap(~ ANO_ELEICAO, ncol = 1) +
+  scale_fill_manual(values = cores_genero_raca, labels = rotulos_gr, name = "Gênero/Raça") +
+  scale_y_continuous(labels = function(x) paste0(x, "%")) +
+  labs(title = "% de Candidaturas por UF – Grupos Selecionados",
+       subtitle = "Vereança",
+       x = "UF", y = "% de candidaturas") +
+  tema_tese
+
+ggsave("grafico2_genero_raca_uf.png", width = 11, height = 9, dpi = 300)
+```
+
+\newpage
+
+# Distribuição por gênero e raça das candidaturas por partido
+
+```{r prep_partido, include=FALSE}
+# Denominador: total de candidaturas do partido (sigla harmonizada) no ano
+total_part_cand <- bd_vereanca %>%
+  group_by(ANO_ELEICAO, SG_PARTIDO2) %>%
+  summarise(n_total = n(), .groups = "drop")
+
+# Ordem fixa dos partidos nos Gráficos 3 a 5, agrupados por campo ideológico
+# (conforme a classificação usada no código — ver chunk carrega_dados)
+partidos_fixos <- c(
+  # Centro
+  "PPS/CIDADANIA", "PV", "REDE",
+  # Centro-Direita
+  "PHS", "PMB", "PMN/MOBILIZA", "PRD", "PT do B/AVANTE", "PTB", "SD/SOLIDARIEDADE",
+  # Centro-Esquerda
+  "PDT", "PSB",
+  # Direita
+  "NOVO", "PL", "PMDB/MDB", "PODE", "PP", "PPL", "PR", "PRB/REPUBLICANOS", "PROS",
+  "PRP", "PRTB", "PSC", "PSD", "PSDB", "PSDC/DC", "PSL", "PTC/AGIR", "PTN", "UNIÃO",
+  # Esquerda
+  "PCdoB", "PT",
+  # Extrema-Direita
+  "DEM", "PATRIOTA",
+  # Extrema-Esquerda
+  "PCB", "PCO", "PSOL", "PSTU", "UP"
+)
+
+# % de cada grupo principal sobre o total de candidaturas do partido no ano
+tab_part_cand <- bd_vereanca %>%
+  filter(DSC_GENERO_RACA %in% grupos_chave) %>%
+  group_by(ANO_ELEICAO, SG_PARTIDO2, GRUPO = as.character(DSC_GENERO_RACA)) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  left_join(total_part_cand, by = c("ANO_ELEICAO", "SG_PARTIDO2")) %>%
+  mutate(pct = round(n / n_total * 100, 1),
+         SG_PARTIDO2 = factor(SG_PARTIDO2, levels = partidos_fixos)) %>%
+  select(-n_total)
+
+# Função que desenha o gráfico por partido para um ano (Gráficos 3, 4 e 5).
+# Obs.: em partidos pequenos, poucas candidaturas geram grandes oscilações
+# percentuais — interpretar com cautela.
+graf_partido <- function(ano) {
+  dados <- tab_part_cand %>% filter(ANO_ELEICAO == ano)
+  ggplot(dados, aes(x = SG_PARTIDO2, y = pct, fill = GRUPO)) +
+    geom_col(position = "stack", width = 0.95) +
+    geom_text(data = dados %>% filter(pct >= 2),
+              aes(label = formatC(pct, digits=1, format="f", decimal.mark=",")),
+              position = position_stack(vjust = 0.5),
+              size = 2.5, color = "white", fontface = "bold") +
+    coord_flip() +
+    scale_fill_manual(values = cores_genero_raca, labels = rotulos_gr, name = "Gênero/Raça") +
+    scale_y_continuous(labels = function(x) paste0(x, "%")) +
+    labs(title = "% de Candidaturas por Partido – Grupos Selecionados",
+         subtitle = paste("Vereança", ano),
+         x = "Partido", y = "% de candidaturas") +
+    tema_tese
+}
+```
+
+```{r graf3_genero_raca_partido_2016, fig.cap="Gráfico 3 – Distribuição por Gênero e Raça das candidaturas por partido em 2016", fig.height=7, fig.width=11}
+graf_partido(2016)
+ggsave("grafico3_genero_raca_partido_2016.png", width = 12, height = 10, dpi = 300)
+```
+
+```{r graf4_genero_raca_partido_2020, fig.cap="Gráfico 4 – Distribuição por Gênero e Raça das candidaturas por partido em 2020", fig.height=7, fig.width=11}
+graf_partido(2020)
+ggsave("grafico4_genero_raca_partido_2020.png", width = 12, height = 10, dpi = 300)
+```
+
+```{r graf5_genero_raca_partido_2024, fig.cap="Gráfico 5 – Distribuição por Gênero e Raça das candidaturas por partido em 2024", fig.height=7, fig.width=11}
+graf_partido(2024)
+ggsave("grafico5_genero_raca_partido_2024.png", width = 12, height = 10, dpi = 300)
+```
+
+\newpage
+
+# Distribuição por gênero e raça das candidaturas por ideologia
+
+```{r graf6_genero_raca_ideologia, fig.cap="Gráfico 6 – Distribuição por Gênero e Raça das candidaturas por ideologia em 2016, 2020 e 2024", fig.height=5}
+# Ordem das categorias no eixo (esquerda → direita)
+niveis_ideo <- c("Extrema-Esquerda","Esquerda","Centro-Esquerda",
+                 "Centro","Centro-Direita","Direita","Extrema-Direita")
+
+# Denominador: total de candidaturas do bloco ideológico no ano
+# (partidos sem classificação — NA — são excluídos)
+total_ideo_cand <- bd_vereanca %>%
+  filter(!is.na(DSC_IDEOLOGIA)) %>%
+  group_by(ANO_ELEICAO, DSC_IDEOLOGIA) %>%
+  summarise(n_total = n(), .groups = "drop")
+
+graf6_data <- bd_vereanca %>%
+  filter(!is.na(DSC_IDEOLOGIA), DSC_GENERO_RACA %in% grupos_chave) %>%
+  group_by(ANO_ELEICAO, DSC_IDEOLOGIA, GRUPO = as.character(DSC_GENERO_RACA)) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  left_join(total_ideo_cand, by = c("ANO_ELEICAO", "DSC_IDEOLOGIA")) %>%
+  mutate(pct = round(n / n_total * 100, 1),
+         DSC_IDEOLOGIA = factor(DSC_IDEOLOGIA, levels = niveis_ideo)) %>%
+  select(-n_total)
+
+# Obs.: a ausência da extrema-direita em 2024 decorre das fusões DEM + PSL
+# (União Brasil) e PTB + Patriota (PRD), não de mudança substantiva.
+ggplot(graf6_data, aes(x = DSC_IDEOLOGIA, y = pct, fill = GRUPO)) +
+  geom_col(position = "stack") +
+  geom_text(data = graf6_data %>% filter(pct >= 2),
+            aes(label = formatC(pct, digits=1, format="f", decimal.mark=",")),
+            position = position_stack(vjust = 0.5),
+            size = 2.5, color = "white", fontface = "bold") +
+  coord_flip() +
+  facet_wrap(~ ANO_ELEICAO, ncol = 2) +
+  scale_fill_manual(values = cores_genero_raca, labels = rotulos_gr, name = "Gênero/Raça") +
+  scale_y_continuous(labels = function(x) paste0(x, "%")) +
+  labs(title = "% de Candidaturas por Ideologia – Grupos Selecionados",
+       subtitle = "Vereança",
+       x = "Espectro Ideológico", y = "% de candidaturas") +
+  tema_tese
+
+ggsave("grafico6_genero_raca_ideologia.png", width = 10, height = 6, dpi = 300)
+```
+
+<!-- ─────────────────────────────────────────────────────────────────────────
+     OPCIONAL (não executado): gera o extrato reduzido e comprimido da base
+     do TSE, com apenas as linhas e colunas usadas acima, para caber no
+     GitHub. Para usar, rode o código manualmente no console uma vez.
+     ───────────────────────────────────────────────────────────────────── -->
+
+```{r gera_extrato_github, eval=FALSE, include=FALSE}
+bd_full <- read.csv2("bd_cand_2014_2024.csv", sep = ";",
+                     stringsAsFactors = FALSE, encoding = "UTF-8")
+
+bd_full %>%
+  filter(DS_CARGO == "VEREADOR") %>%
+  select(ANO_ELEICAO, DS_CARGO, SG_UF, SG_UE, NM_UE, SG_PARTIDO,
+         DSC_GENERO, DSC_COR_RACA) %>%
+  readr::write_csv2("bd_cand_2014_2024.csv.gz")   # compressão automática
+```
+
+\newpage
+
+# Apêndice: ambiente computacional
+
+```{r session_info, echo=FALSE}
+# Versão do R e dos pacotes usados (reprodutibilidade)
+sessionInfo()
+```

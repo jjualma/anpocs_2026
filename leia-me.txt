@@ -1,0 +1,158 @@
+LEIA-ME
+================================================================================
+
+RAÇA E RECRUTAMENTO ELEITORAL NO BRASIL: composição racial e de gênero das
+candidaturas à vereança por partido e ideologia (2016-2024)
+
+Autores:
+  Wescrey Portes - ORCID 0000-0002-1026-1437 - wescrey.portes@iesp.uerj.br
+  Juliana Marques - ORCID 0009-0006-4213-4404 - julianamarques@iesp.uerj.br
+  IESP/UERJ, Rio de Janeiro/RJ, Brasil
+
+Evento: Encontro Anual da ANPOCS 2026
+
+
+1. DECLARAÇÃO DE DISPONIBILIDADE DE DADOS DA PESQUISA
+--------------------------------------------------------------------------------
+Todo o conjunto de dados de apoio aos resultados deste estudo foi
+disponibilizado no GitHub e pode ser acessado em
+https://github.com/jjualma/anpocs_2026.
+
+
+2. UNIVERSO E CLASSIFICAÇÕES
+--------------------------------------------------------------------------------
+Recorte: candidaturas a vereador nas eleições de 2016, 2020 e 2024 (incluindo
+as consideradas inaptas) nos municípios com mais de 200 mil eleitores, aptos
+a segundo turno (103 municípios em 2024).
+
+Classificação racial: classificação do IBGE adotada pelo TSE
+(autodeclaração): preta, parda, branca, amarela, indígena e não informada.
+Negros = pretos + pardos; os dois grupos são apresentados separadamente.
+
+Classificação ideológica: sete categorias (extrema-esquerda a
+extrema-direita), com base no expert survey ABCP 2018 (Bolognesi, Ribeiro e
+Codato, 2023). Siglas renomeadas mantêm a classificação da sigla de origem.
+
+
+3. ARQUIVOS DO REPOSITÓRIO
+--------------------------------------------------------------------------------
+analise_anpocs_cidades_segundo_turno.Rmd  (aprox. 30 KB)
+  Script R Markdown que gera os Gráficos 1 a 6 do artigo.
+
+bd_cand_2014_2024.csv.gz  (aprox. 11,8 MB - ver seção 7)
+  Extrato comprimido da base de candidaturas consolidada a partir do Portal
+  de Dados Abertos do TSE (https://dadosabertos.tse.jus.br/): candidaturas
+  a vereador, apenas com as variáveis da seção 4. CSV comprimido (gzip),
+  separador ";", codificação UTF-8. O R lê o arquivo diretamente, sem
+  necessidade de descompactar.
+
+municipio_tse_ibge.csv  (aprox. 508 KB)
+  Correspondência entre o código de município do TSE (CD_MUNICIPIO_TSE) e o
+  código IBGE de 7 dígitos (CD_MUNICIPIO_IBGE). CSV, separador ";".
+  Fonte: TSE - Códigos oficiais de UF e municípios segundo o TSE e o IBGE
+  https://dadosabertos.tse.jus.br/dataset/codigos-oficiais-de-uf-e-municipios-segundo-o-tse-e-o-ibge
+
+base_capitais.xlsx  (aprox. 11 KB)
+  Lista das capitais, com a coluna "Código IBGE". Cria a variável
+  flag_capitais (1 = capital).
+
+base_segundo_turno.xlsx  (aprox. 16 KB)
+  Lista dos municípios com mais de 200 mil eleitores (aptos a segundo
+  turno), com a coluna "Código IBGE". Define o universo do estudo.
+
+leia-me.txt
+  Este arquivo.
+
+
+4. VARIÁVEIS
+--------------------------------------------------------------------------------
+Da base bd_cand_2014_2024:
+  ANO_ELEICAO    Ano da eleição
+  DS_CARGO       Cargo disputado (filtro: VEREADOR)
+  SG_UF          Sigla da unidade da federação
+  SG_UE          Código TSE do município (unidade eleitoral)
+  NM_UE          Nome do município
+  SG_PARTIDO     Sigla do partido (em 2024, partido de filiação, não a
+                 federação)
+  DSC_GENERO     Gênero: FEM, MASC, NAOINF
+  DSC_COR_RACA   Cor/raça autodeclarada: PRETA, PARDA, BRANCA, AMARELA,
+                 INDIGENA, NAOINF
+
+Criadas no script:
+  DSC_GENERO_RACA     Combinação de gênero e cor/raça (ex.: FEMPRETA)
+  SG_PARTIDO2         Sigla harmonizada de partidos renomeados (ex.:
+                      PMDB/MDB, PRB/REPUBLICANOS, PPS/CIDADANIA); fusões
+                      não são agregadas
+  DSC_IDEOLOGIA       Bloco ideológico do partido (sete categorias)
+  flag_capitais       1 = capital
+  flag_segundo_turno  1 = município do universo do estudo
+
+
+5. SAÍDAS (GRÁFICOS DO ARTIGO)
+--------------------------------------------------------------------------------
+Gráfico 1  Distribuição por gênero e raça das candidaturas em 2016, 2020 e
+           2024 -> grafico1_genero_raca_brasil.png
+Gráfico 2  Distribuição por gênero e raça das candidaturas por estado
+           -> grafico2_genero_raca_uf.png
+Gráfico 3  Por partido em 2016 -> grafico3_genero_raca_partido_2016.png
+Gráfico 4  Por partido em 2020 -> grafico4_genero_raca_partido_2020.png
+Gráfico 5  Por partido em 2024 -> grafico5_genero_raca_partido_2024.png
+Gráfico 6  Por ideologia -> grafico6_genero_raca_ideologia.png
+
+
+6. COMO REPRODUZIR
+--------------------------------------------------------------------------------
+Requisitos: R 4.2 ou superior e RStudio. Os pacotes são instalados
+automaticamente via pacman: dplyr, tidyverse, ggplot2, knitr, scales,
+forcats, readr, readxl.
+
+Passo 1. Baixar o repositório e colocar todas as bases na mesma pasta do
+         .Rmd (os caminhos são relativos; não é preciso alterar diretórios
+         no código).
+Passo 2. Manter bd_cand_2014_2024.csv.gz na pasta, sem descompactar (o
+         script lê o .csv ou o .csv.gz, o que estiver disponível).
+Passo 3. Abrir o .Rmd no RStudio e clicar em "Knit", ou executar no console:
+         rmarkdown::render("analise_anpocs_cidades_segundo_turno.Rmd")
+         O relatório termina com o sessionInfo() (versões do R e pacotes).
+
+Etapas do processamento:
+  1) leitura da base do TSE e classificação ideológica dos partidos;
+  2) harmonização das siglas renomeadas;
+  3) recorte de vereador e criação de DSC_GENERO_RACA;
+  4) conversão de códigos IBGE -> TSE via municipio_tse_ibge.csv;
+  5) restrição aos municípios com mais de 200 mil eleitores;
+  6) geração dos Gráficos 1 a 6.
+
+
+7. SOBRE O ARQUIVO bd_cand_2014_2024.csv.gz
+--------------------------------------------------------------------------------
+A base completa consolidada pelos autores (bd_cand_2014_2024.csv, cerca de
+489 MB, eleições de 2014 a 2024 e todos os cargos) excede o limite de 100 MB
+por arquivo do GitHub. Por isso, o repositório disponibiliza o extrato
+comprimido bd_cand_2014_2024.csv.gz (cerca de 11,8 MB), que contém todas as
+informações necessárias para reproduzir os resultados do artigo. O extrato
+foi gerado pelo trecho "gera_extrato_github" do .Rmd.
+
+Para descompactar fora do R (opcional): 7-Zip ou WinRAR no Windows, ou o
+comando "gunzip -k bd_cand_2014_2024.csv.gz" no Linux/macOS/Git Bash.
+
+
+8. ÉTICA E PROTEÇÃO DE DADOS
+--------------------------------------------------------------------------------
+Os dados do TSE são públicos, mas a base consolidada pode conter campos
+pessoais (CPF, título de eleitor, e-mail, data de nascimento). Em atenção à
+LGPD, publica-se apenas o necessário à reprodução.
+
+
+9. LICENÇA
+--------------------------------------------------------------------------------
+Código: MIT. Dados derivados: CC BY 4.0. Dados originais: Tribunal Superior
+Eleitoral (TSE).
+
+
+10. COMO CITAR
+--------------------------------------------------------------------------------
+PORTES, Wescrey; MARQUES, Juliana. Raça e recrutamento eleitoral no Brasil:
+composição racial e de gênero das candidaturas à vereança por partido e
+ideologia (2016-2024) [conjunto de dados e código]. GitHub, 2026. Disponível
+em: https://github.com/jjualma/anpocs_2026. Acesso em: dd mmm. aaaa.
